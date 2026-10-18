@@ -2,6 +2,7 @@ package com.scaler.harsh.orderservice.service;
 
 import com.scaler.harsh.orderservice.dto.*;
 import com.scaler.harsh.orderservice.exceptions.ServiceException;
+import com.scaler.harsh.orderservice.kafka.OrderEventProducer;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.model.OrderItem;
 import org.springframework.http.HttpStatus;
@@ -23,13 +24,14 @@ public class OrderServiceImpl implements OrderService {
     private static final String PRODUCT_SERVICE_URL = "http://localhost:8080";
     private static final String PAYMENT_SERVICE_URL = "http://localhost:8085";
 
-    // Placeholder order id generator — no real database yet, flagged as a known gap.
     private static final AtomicInteger orderIdGenerator = new AtomicInteger(1000);
 
     private final RestTemplate restTemplate;
+    private final OrderEventProducer orderEventProducer;
 
-    public OrderServiceImpl(RestTemplate restTemplate) {
+    public OrderServiceImpl(RestTemplate restTemplate, OrderEventProducer orderEventProducer) {
         this.restTemplate = restTemplate;
+        this.orderEventProducer = orderEventProducer;
     }
 
     @Override
@@ -96,7 +98,6 @@ public class OrderServiceImpl implements OrderService {
 
         Integer orderId = orderIdGenerator.incrementAndGet();
 
-        // Step 5: process payment
         PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
         paymentRequest.setOrderId(orderId);
         paymentRequest.setUserId(request.getUserId());
@@ -121,6 +122,9 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(total);
         order.setPaymentStatus(payment.getStatus());
         order.setTransactionId(payment.getTransactionId());
+
+        orderEventProducer.publishOrderPlaced(orderId, request.getUserId(), total);
+
         return order;
     }
 }
