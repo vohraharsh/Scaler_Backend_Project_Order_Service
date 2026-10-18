@@ -8,8 +8,10 @@ import java.util.List;
 
 @Getter @Setter
 public class OrderResponseDTO {
+    private Integer id;
     private Integer userId;
     private List<OrderItem> items;
     private double totalAmount;
     private String status;
+    private String transactionId;
 }

@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -20,6 +21,10 @@ public class OrderServiceImpl implements OrderService {
     private static final String USER_SERVICE_URL = "http://localhost:8081";
     private static final String CART_SERVICE_URL = "http://localhost:8083";
     private static final String PRODUCT_SERVICE_URL = "http://localhost:8080";
+    private static final String PAYMENT_SERVICE_URL = "http://localhost:8085";
+
+    // Placeholder order id generator — no real database yet, flagged as a known gap.
+    private static final AtomicInteger orderIdGenerator = new AtomicInteger(1000);
 
     private final RestTemplate restTemplate;
 
@@ -89,10 +94,33 @@ public class OrderServiceImpl implements OrderService {
             total += product.getPrice() * cartProduct.getQuantity();
         }
 
+        Integer orderId = orderIdGenerator.incrementAndGet();
+
+        // Step 5: process payment
+        PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
+        paymentRequest.setOrderId(orderId);
+        paymentRequest.setUserId(request.getUserId());
+        paymentRequest.setAmount(total);
+
+        PaymentResponseDTO payment;
+        try {
+            payment = restTemplate.postForObject(
+                    PAYMENT_SERVICE_URL + "/payments", paymentRequest, PaymentResponseDTO.class);
+        } catch (RestClientException e) {
+            throw new ServiceException("Payment Service unavailable", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+
+        if (payment == null) {
+            throw new ServiceException("Payment failed", HttpStatus.BAD_REQUEST);
+        }
+
         Order order = new Order();
+        order.setId(orderId);
         order.setUserId(request.getUserId());
         order.setItems(items);
         order.setTotalAmount(total);
+        order.setPaymentStatus(payment.getStatus());
+        order.setTransactionId(payment.getTransactionId());
         return order;
     }
 }

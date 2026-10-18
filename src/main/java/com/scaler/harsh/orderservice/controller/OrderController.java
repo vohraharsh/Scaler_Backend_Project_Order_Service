@@ -32,10 +32,12 @@ public class OrderController {
         Order order = svc.placeOrder(request);
 
         OrderResponseDTO response = new OrderResponseDTO();
+        response.setId(order.getId());
         response.setUserId(order.getUserId());
         response.setItems(order.getItems());
         response.setTotalAmount(order.getTotalAmount());
-        response.setStatus("CONFIRMED");
+        response.setStatus(order.getPaymentStatus());
+        response.setTransactionId(order.getTransactionId());
 
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
