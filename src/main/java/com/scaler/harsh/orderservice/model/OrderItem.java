@@ -1,10 +1,15 @@
 package com.scaler.harsh.orderservice.model;
 
+import jakarta.persistence.Embeddable;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter
-public class OrderItem {
+import java.io.Serializable;
+
+@Getter
+@Setter
+@Embeddable
+public class OrderItem implements Serializable {
     private Integer productId;
     private String title;
     private Integer quantity;

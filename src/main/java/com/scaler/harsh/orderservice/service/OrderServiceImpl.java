@@ -5,16 +5,17 @@ import com.scaler.harsh.orderservice.exceptions.ServiceException;
 import com.scaler.harsh.orderservice.kafka.OrderEventProducer;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.model.OrderItem;
+import com.scaler.harsh.orderservice.repository.OrderRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -24,17 +25,18 @@ public class OrderServiceImpl implements OrderService {
     private static final String PRODUCT_SERVICE_URL = "http://localhost:8080";
     private static final String PAYMENT_SERVICE_URL = "http://localhost:8085";
 
-    private static final AtomicInteger orderIdGenerator = new AtomicInteger(1000);
-
     private final RestTemplate restTemplate;
     private final OrderEventProducer orderEventProducer;
+    private final OrderRepository orderRepository;
 
-    public OrderServiceImpl(RestTemplate restTemplate, OrderEventProducer orderEventProducer) {
+    public OrderServiceImpl(RestTemplate restTemplate, OrderEventProducer orderEventProducer, OrderRepository orderRepository) {
         this.restTemplate = restTemplate;
         this.orderEventProducer = orderEventProducer;
+        this.orderRepository = orderRepository;
     }
 
     @Override
+    @Transactional
     public Order placeOrder(CreateOrderRequestDTO request) {
 
         UserDTO user;
@@ -96,10 +98,16 @@ public class OrderServiceImpl implements OrderService {
             total += product.getPrice() * cartProduct.getQuantity();
         }
 
-        Integer orderId = orderIdGenerator.incrementAndGet();
+        // Save order in a pending state first — DB assigns the real id here
+        Order order = new Order();
+        order.setUserId(request.getUserId());
+        order.setItems(items);
+        order.setTotalAmount(total);
+        order.setPaymentStatus("PENDING");
+        order = orderRepository.save(order);
 
         PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
-        paymentRequest.setOrderId(orderId);
+        paymentRequest.setOrderId(order.getId());
         paymentRequest.setUserId(request.getUserId());
         paymentRequest.setAmount(total);
 
@@ -115,15 +123,12 @@ public class OrderServiceImpl implements OrderService {
             throw new ServiceException("Payment failed", HttpStatus.BAD_REQUEST);
         }
 
-        Order order = new Order();
-        order.setId(orderId);
-        order.setUserId(request.getUserId());
-        order.setItems(items);
-        order.setTotalAmount(total);
+        // Update the same order row with the payment result
         order.setPaymentStatus(payment.getStatus());
         order.setTransactionId(payment.getTransactionId());
+        order = orderRepository.save(order);
 
-        orderEventProducer.publishOrderPlaced(orderId, request.getUserId(), total);
+        orderEventProducer.publishOrderPlaced(order.getId(), request.getUserId(), total);
 
         return order;
     }
