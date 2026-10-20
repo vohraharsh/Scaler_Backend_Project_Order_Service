@@ -9,4 +9,5 @@ public class PaymentResponseDTO {
     private Integer orderId;
     private double amount;
     private String status;
+    private String paymentMethod;
 }

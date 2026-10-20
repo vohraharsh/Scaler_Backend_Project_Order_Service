@@ -8,4 +8,6 @@ public class PaymentRequestDTO {
     private Integer orderId;
     private Integer userId;
     private double amount;
+    private String paymentMethod;
+    private Boolean simulateFailure;
 }

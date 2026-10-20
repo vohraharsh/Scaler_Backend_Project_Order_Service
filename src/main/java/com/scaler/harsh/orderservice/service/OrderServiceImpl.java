@@ -122,11 +122,21 @@ public class OrderServiceImpl implements OrderService {
         paymentRequest.setOrderId(order.getId());
         paymentRequest.setUserId(request.getUserId());
         paymentRequest.setAmount(total);
+        paymentRequest.setPaymentMethod(request.getPaymentMethod());
+        paymentRequest.setSimulateFailure(request.getSimulateFailure());
 
         PaymentResponseDTO payment;
         try {
             payment = restTemplate.postForObject(
                     PAYMENT_SERVICE_URL + "/payments", paymentRequest, PaymentResponseDTO.class);
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
+                // Payment Service returns 402 for a declined payment, with the decline details in the body.
+                payment = parsePaymentResponse(e);
+            } else {
+                throw new ServiceException("Payment Service rejected the request: " + e.getMessage(),
+                        HttpStatus.BAD_REQUEST);
+            }
         } catch (RestClientException e) {
             throw new ServiceException("Payment Service unavailable", HttpStatus.SERVICE_UNAVAILABLE);
         }
@@ -135,10 +145,18 @@ public class OrderServiceImpl implements OrderService {
             throw new ServiceException("Payment failed", HttpStatus.BAD_REQUEST);
         }
 
-        // Update the same order row with the payment result
+        // Record the payment result either way — a declined payment is still a real, auditable attempt.
         order.setPaymentStatus(payment.getStatus());
         order.setTransactionId(payment.getTransactionId());
         order = orderRepository.save(order);
+
+        if (!"SUCCESS".equals(payment.getStatus())) {
+            // Payment declined: do NOT clear the cart (items stay available to retry) and do NOT
+            // publish an order-placed event. The order row stays as a FAILED audit record.
+            throw new ServiceException(
+                    "Payment declined for order " + order.getId() + " (transaction " + payment.getTransactionId() + ")",
+                    HttpStatus.PAYMENT_REQUIRED);
+        }
 
         orderEventProducer.publishOrderPlaced(order.getId(), request.getUserId(), total);
 
@@ -152,6 +170,14 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return order;
+    }
+
+    private PaymentResponseDTO parsePaymentResponse(HttpClientErrorException e) {
+        try {
+            return e.getResponseBodyAs(PaymentResponseDTO.class);
+        } catch (Exception parseEx) {
+            return null;
+        }
     }
 
     @Override
@@ -208,8 +234,6 @@ public class OrderServiceImpl implements OrderService {
         return orderRepository.save(order);
     }
 
-    // Rank used only to enforce forward movement through the non-terminal flow.
-    // CANCELLED is handled separately above since it can be reached from any non-terminal state.
     private int forwardRank(DeliveryStatus status) {
         switch (status) {
             case PLACED: return 0;

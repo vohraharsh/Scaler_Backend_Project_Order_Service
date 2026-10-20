@@ -31,6 +31,9 @@ public class OrderController {
         if (request.getCartId() == null || request.getCartId() <= 0) {
             throw new ServiceException("Valid cartId is required", HttpStatus.BAD_REQUEST);
         }
+        if (request.getPaymentMethod() == null || request.getPaymentMethod().isBlank()) {
+            throw new ServiceException("paymentMethod is required", HttpStatus.BAD_REQUEST);
+        }
 
         DeliveryAddressDTO address = request.getDeliveryAddress();
         if (address == null) {

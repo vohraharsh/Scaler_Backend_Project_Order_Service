@@ -8,4 +8,6 @@ public class CreateOrderRequestDTO {
     private Integer userId;
     private Integer cartId;
     private DeliveryAddressDTO deliveryAddress;
+    private String paymentMethod;
+    private Boolean simulateFailure;
 }
