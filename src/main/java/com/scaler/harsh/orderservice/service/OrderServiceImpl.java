@@ -60,16 +60,16 @@ public class OrderServiceImpl implements OrderService {
         CartDTO cart;
         try {
             ResponseEntity<CartDTO> cartResponse = restTemplate.getForEntity(
-                    CART_SERVICE_URL + "/carts/" + request.getCartId(), CartDTO.class);
+                    CART_SERVICE_URL + "/carts/active/" + request.getUserId(), CartDTO.class);
             cart = cartResponse.getBody();
         } catch (HttpClientErrorException.NotFound e) {
-            throw new ServiceException("Cart not found: " + request.getCartId(), HttpStatus.NOT_FOUND);
+            throw new ServiceException("No active cart for user: " + request.getUserId(), HttpStatus.NOT_FOUND);
         } catch (RestClientException e) {
             throw new ServiceException("Cart Service unavailable", HttpStatus.SERVICE_UNAVAILABLE);
         }
 
         if (cart == null) {
-            throw new ServiceException("Cart not found: " + request.getCartId(), HttpStatus.NOT_FOUND);
+            throw new ServiceException("No active cart for user: " + request.getUserId(), HttpStatus.NOT_FOUND);
         }
 
         List<OrderItem> items = new ArrayList<>();
@@ -131,7 +131,6 @@ public class OrderServiceImpl implements OrderService {
                     PAYMENT_SERVICE_URL + "/payments", paymentRequest, PaymentResponseDTO.class);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
-                // Payment Service returns 402 for a declined payment, with the decline details in the body.
                 payment = parsePaymentResponse(e);
             } else {
                 throw new ServiceException("Payment Service rejected the request: " + e.getMessage(),
@@ -145,14 +144,11 @@ public class OrderServiceImpl implements OrderService {
             throw new ServiceException("Payment failed", HttpStatus.BAD_REQUEST);
         }
 
-        // Record the payment result either way — a declined payment is still a real, auditable attempt.
         order.setPaymentStatus(payment.getStatus());
         order.setTransactionId(payment.getTransactionId());
         order = orderRepository.save(order);
 
         if (!"SUCCESS".equals(payment.getStatus())) {
-            // Payment declined: do NOT clear the cart (items stay available to retry) and do NOT
-            // publish an order-placed event. The order row stays as a FAILED audit record.
             throw new ServiceException(
                     "Payment declined for order " + order.getId() + " (transaction " + payment.getTransactionId() + ")",
                     HttpStatus.PAYMENT_REQUIRED);
@@ -163,9 +159,9 @@ public class OrderServiceImpl implements OrderService {
         // Order is placed and paid — clear the cart so it can't be re-ordered or re-charged.
         // A failure here is a cleanup problem, not a reason to fail an already-completed order.
         try {
-            restTemplate.delete(CART_SERVICE_URL + "/carts/" + request.getCartId());
+            restTemplate.delete(CART_SERVICE_URL + "/carts/" + cart.getId());
         } catch (RestClientException e) {
-            System.err.println("Failed to delete cart " + request.getCartId()
+            System.err.println("Failed to delete cart " + cart.getId()
                     + " after order " + order.getId() + ": " + e.getMessage());
         }
 
