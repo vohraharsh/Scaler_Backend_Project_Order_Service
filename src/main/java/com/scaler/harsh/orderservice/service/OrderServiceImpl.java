@@ -158,7 +158,7 @@ public class OrderServiceImpl implements OrderService {
                     HttpStatus.PAYMENT_REQUIRED);
         }
 
-        orderEventProducer.publishOrderPlaced(order.getId(), request.getUserId(), total);
+        orderEventProducer.publishOrderPlaced(order.getId(), request.getUserId(), user.getEmail(), total);
 
         // Order is placed and paid — clear the cart so it can't be re-ordered or re-charged.
         // A failure here is a cleanup problem, not a reason to fail an already-completed order.
