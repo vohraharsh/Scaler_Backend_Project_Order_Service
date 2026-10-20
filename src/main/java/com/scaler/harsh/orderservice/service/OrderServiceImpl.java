@@ -39,7 +39,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = ServiceException.class)
     public Order placeOrder(CreateOrderRequestDTO request) {
 
         UserDTO user;
