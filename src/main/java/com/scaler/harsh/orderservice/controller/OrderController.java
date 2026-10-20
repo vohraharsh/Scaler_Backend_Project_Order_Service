@@ -8,9 +8,10 @@ import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.service.OrderService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 public class OrderController {
@@ -45,16 +46,31 @@ public class OrderController {
         }
 
         Order order = svc.placeOrder(request);
+        return new ResponseEntity<>(convertToResponseDTO(order), HttpStatus.CREATED);
+    }
 
-        OrderResponseDTO response = new OrderResponseDTO();
-        response.setId(order.getId());
-        response.setUserId(order.getUserId());
-        response.setItems(order.getItems());
-        response.setTotalAmount(order.getTotalAmount());
-        response.setStatus(order.getPaymentStatus());
-        response.setTransactionId(order.getTransactionId());
-        response.setDeliveryAddress(order.getDeliveryAddress());
+    @GetMapping("/orders/user/{userId}")
+    public List<OrderResponseDTO> getOrdersByUserId(@PathVariable("userId") Integer userId) {
+        if (userId == null || userId <= 0) {
+            throw new ServiceException("Invalid user id", HttpStatus.BAD_REQUEST);
+        }
+        List<Order> orders = svc.getOrdersByUserId(userId);
+        List<OrderResponseDTO> response = new ArrayList<>();
+        for (Order order : orders) {
+            response.add(convertToResponseDTO(order));
+        }
+        return response;
+    }
 
-        return new ResponseEntity<>(response, HttpStatus.CREATED);
+    private OrderResponseDTO convertToResponseDTO(Order order) {
+        OrderResponseDTO dto = new OrderResponseDTO();
+        dto.setId(order.getId());
+        dto.setUserId(order.getUserId());
+        dto.setItems(order.getItems());
+        dto.setTotalAmount(order.getTotalAmount());
+        dto.setStatus(order.getPaymentStatus());
+        dto.setTransactionId(order.getTransactionId());
+        dto.setDeliveryAddress(order.getDeliveryAddress());
+        return dto;
     }
 }

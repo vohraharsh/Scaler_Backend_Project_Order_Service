@@ -141,4 +141,9 @@ public class OrderServiceImpl implements OrderService {
 
         return order;
     }
+
+    @Override
+    public List<Order> getOrdersByUserId(Integer userId) {
+        return orderRepository.findByUserIdOrderByIdDesc(userId);
+    }
 }
