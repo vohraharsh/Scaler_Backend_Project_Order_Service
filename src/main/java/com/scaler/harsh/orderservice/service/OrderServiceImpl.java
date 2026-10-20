@@ -139,6 +139,15 @@ public class OrderServiceImpl implements OrderService {
 
         orderEventProducer.publishOrderPlaced(order.getId(), request.getUserId(), total);
 
+        // Order is placed and paid — clear the cart so it can't be re-ordered or re-charged.
+        // A failure here is a cleanup problem, not a reason to fail an already-completed order.
+        try {
+            restTemplate.delete(CART_SERVICE_URL + "/carts/" + request.getCartId());
+        } catch (RestClientException e) {
+            System.err.println("Failed to delete cart " + request.getCartId()
+                    + " after order " + order.getId() + ": " + e.getMessage());
+        }
+
         return order;
     }
 
