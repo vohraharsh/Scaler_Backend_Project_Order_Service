@@ -3,6 +3,7 @@ package com.scaler.harsh.orderservice.controller;
 import com.scaler.harsh.orderservice.dto.CreateOrderRequestDTO;
 import com.scaler.harsh.orderservice.dto.DeliveryAddressDTO;
 import com.scaler.harsh.orderservice.dto.OrderResponseDTO;
+import com.scaler.harsh.orderservice.dto.UpdateDeliveryStatusRequestDTO;
 import com.scaler.harsh.orderservice.exceptions.ServiceException;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.service.OrderService;
@@ -49,6 +50,14 @@ public class OrderController {
         return new ResponseEntity<>(convertToResponseDTO(order), HttpStatus.CREATED);
     }
 
+    @GetMapping("/orders/{id}")
+    public OrderResponseDTO getOrderById(@PathVariable("id") Integer id) {
+        if (id == null || id <= 0) {
+            throw new ServiceException("Invalid order id", HttpStatus.BAD_REQUEST);
+        }
+        return convertToResponseDTO(svc.getOrderById(id));
+    }
+
     @GetMapping("/orders/user/{userId}")
     public List<OrderResponseDTO> getOrdersByUserId(@PathVariable("userId") Integer userId) {
         if (userId == null || userId <= 0) {
@@ -62,6 +71,19 @@ public class OrderController {
         return response;
     }
 
+    @PatchMapping("/orders/{id}/status")
+    public OrderResponseDTO updateDeliveryStatus(@PathVariable("id") Integer id,
+                                                 @RequestBody UpdateDeliveryStatusRequestDTO request) {
+        if (id == null || id <= 0) {
+            throw new ServiceException("Invalid order id", HttpStatus.BAD_REQUEST);
+        }
+        if (request.getDeliveryStatus() == null || request.getDeliveryStatus().isBlank()) {
+            throw new ServiceException("deliveryStatus is required", HttpStatus.BAD_REQUEST);
+        }
+        Order order = svc.updateDeliveryStatus(id, request.getDeliveryStatus());
+        return convertToResponseDTO(order);
+    }
+
     private OrderResponseDTO convertToResponseDTO(Order order) {
         OrderResponseDTO dto = new OrderResponseDTO();
         dto.setId(order.getId());
@@ -71,6 +93,7 @@ public class OrderController {
         dto.setStatus(order.getPaymentStatus());
         dto.setTransactionId(order.getTransactionId());
         dto.setDeliveryAddress(order.getDeliveryAddress());
+        dto.setDeliveryStatus(order.getDeliveryStatus());
         return dto;
     }
 }

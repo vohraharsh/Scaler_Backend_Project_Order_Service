@@ -3,6 +3,8 @@ package com.scaler.harsh.orderservice.model;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -34,4 +36,7 @@ public class Order implements Serializable {
 
     @Embedded
     private DeliveryAddress deliveryAddress;
+
+    @Enumerated(EnumType.STRING)
+    private DeliveryStatus deliveryStatus;
 }

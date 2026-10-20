@@ -4,6 +4,7 @@ import com.scaler.harsh.orderservice.dto.*;
 import com.scaler.harsh.orderservice.exceptions.ServiceException;
 import com.scaler.harsh.orderservice.kafka.OrderEventProducer;
 import com.scaler.harsh.orderservice.model.DeliveryAddress;
+import com.scaler.harsh.orderservice.model.DeliveryStatus;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.model.OrderItem;
 import com.scaler.harsh.orderservice.repository.OrderRepository;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -113,6 +115,7 @@ public class OrderServiceImpl implements OrderService {
         order.setTotalAmount(total);
         order.setPaymentStatus("PENDING");
         order.setDeliveryAddress(deliveryAddress);
+        order.setDeliveryStatus(DeliveryStatus.PLACED);
         order = orderRepository.save(order);
 
         PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
@@ -154,5 +157,35 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public List<Order> getOrdersByUserId(Integer userId) {
         return orderRepository.findByUserIdOrderByIdDesc(userId);
+    }
+
+    @Override
+    public Order getOrderById(Integer orderId) {
+        Optional<Order> order = orderRepository.findById(orderId);
+        if (order.isEmpty()) {
+            throw new ServiceException("Order not found: " + orderId, HttpStatus.NOT_FOUND);
+        }
+        return order.get();
+    }
+
+    @Override
+    public Order updateDeliveryStatus(Integer orderId, String deliveryStatus) {
+        Optional<Order> existing = orderRepository.findById(orderId);
+        if (existing.isEmpty()) {
+            throw new ServiceException("Order not found: " + orderId, HttpStatus.NOT_FOUND);
+        }
+
+        DeliveryStatus parsed;
+        try {
+            parsed = DeliveryStatus.valueOf(deliveryStatus.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ServiceException(
+                    "Invalid deliveryStatus. Must be one of: PLACED, SHIPPED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        Order order = existing.get();
+        order.setDeliveryStatus(parsed);
+        return orderRepository.save(order);
     }
 }

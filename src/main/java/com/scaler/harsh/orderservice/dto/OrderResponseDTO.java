@@ -1,6 +1,7 @@
 package com.scaler.harsh.orderservice.dto;
 
 import com.scaler.harsh.orderservice.model.DeliveryAddress;
+import com.scaler.harsh.orderservice.model.DeliveryStatus;
 import com.scaler.harsh.orderservice.model.OrderItem;
 import lombok.Getter;
 import lombok.Setter;
@@ -16,4 +17,5 @@ public class OrderResponseDTO {
     private String status;
     private String transactionId;
     private DeliveryAddress deliveryAddress;
+    private DeliveryStatus deliveryStatus;
 }
