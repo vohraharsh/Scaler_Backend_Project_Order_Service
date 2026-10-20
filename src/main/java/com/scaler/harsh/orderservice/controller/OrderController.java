@@ -94,6 +94,7 @@ public class OrderController {
         dto.setTransactionId(order.getTransactionId());
         dto.setDeliveryAddress(order.getDeliveryAddress());
         dto.setDeliveryStatus(order.getDeliveryStatus());
+        dto.setCreatedAt(order.getCreatedAt());
         return dto;
     }
 }

@@ -185,7 +185,38 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Order order = existing.get();
+        DeliveryStatus current = order.getDeliveryStatus();
+
+        if (current == DeliveryStatus.DELIVERED || current == DeliveryStatus.CANCELLED) {
+            throw new ServiceException(
+                    "Order is already " + current + " and its delivery status cannot be changed further",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        if (parsed != DeliveryStatus.CANCELLED) {
+            int currentRank = (current == null) ? -1 : forwardRank(current);
+            int targetRank = forwardRank(parsed);
+            if (targetRank <= currentRank) {
+                throw new ServiceException(
+                        "Cannot move delivery status backward (or to the same value): "
+                                + (current == null ? "PLACED" : current) + " -> " + parsed,
+                        HttpStatus.BAD_REQUEST);
+            }
+        }
+
         order.setDeliveryStatus(parsed);
         return orderRepository.save(order);
+    }
+
+    // Rank used only to enforce forward movement through the non-terminal flow.
+    // CANCELLED is handled separately above since it can be reached from any non-terminal state.
+    private int forwardRank(DeliveryStatus status) {
+        switch (status) {
+            case PLACED: return 0;
+            case SHIPPED: return 1;
+            case OUT_FOR_DELIVERY: return 2;
+            case DELIVERED: return 3;
+            default: return Integer.MAX_VALUE;
+        }
     }
 }

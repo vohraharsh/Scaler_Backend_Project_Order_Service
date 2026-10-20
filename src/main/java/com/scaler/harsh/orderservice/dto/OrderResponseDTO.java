@@ -6,6 +6,7 @@ import com.scaler.harsh.orderservice.model.OrderItem;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Getter @Setter
@@ -18,4 +19,5 @@ public class OrderResponseDTO {
     private String transactionId;
     private DeliveryAddress deliveryAddress;
     private DeliveryStatus deliveryStatus;
+    private LocalDateTime createdAt;
 }
