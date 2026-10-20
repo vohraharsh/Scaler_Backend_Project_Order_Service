@@ -3,6 +3,7 @@ package com.scaler.harsh.orderservice.service;
 import com.scaler.harsh.orderservice.dto.*;
 import com.scaler.harsh.orderservice.exceptions.ServiceException;
 import com.scaler.harsh.orderservice.kafka.OrderEventProducer;
+import com.scaler.harsh.orderservice.model.DeliveryAddress;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.model.OrderItem;
 import com.scaler.harsh.orderservice.repository.OrderRepository;
@@ -98,12 +99,20 @@ public class OrderServiceImpl implements OrderService {
             total += product.getPrice() * cartProduct.getQuantity();
         }
 
+        DeliveryAddressDTO addressRequest = request.getDeliveryAddress();
+        DeliveryAddress deliveryAddress = new DeliveryAddress();
+        deliveryAddress.setStreet(addressRequest.getStreet());
+        deliveryAddress.setCity(addressRequest.getCity());
+        deliveryAddress.setZipcode(addressRequest.getZipcode());
+        deliveryAddress.setPhone(addressRequest.getPhone());
+
         // Save order in a pending state first — DB assigns the real id here
         Order order = new Order();
         order.setUserId(request.getUserId());
         order.setItems(items);
         order.setTotalAmount(total);
         order.setPaymentStatus("PENDING");
+        order.setDeliveryAddress(deliveryAddress);
         order = orderRepository.save(order);
 
         PaymentRequestDTO paymentRequest = new PaymentRequestDTO();

@@ -1,5 +1,6 @@
 package com.scaler.harsh.orderservice.model;
 
+import jakarta.persistence.Embedded;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -30,4 +31,7 @@ public class Order implements Serializable {
     private double totalAmount;
     private String paymentStatus;
     private String transactionId;
+
+    @Embedded
+    private DeliveryAddress deliveryAddress;
 }

@@ -7,4 +7,5 @@ import lombok.Setter;
 public class CreateOrderRequestDTO {
     private Integer userId;
     private Integer cartId;
+    private DeliveryAddressDTO deliveryAddress;
 }
