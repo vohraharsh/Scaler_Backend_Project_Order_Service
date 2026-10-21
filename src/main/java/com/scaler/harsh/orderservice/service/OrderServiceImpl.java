@@ -125,17 +125,12 @@ public class OrderServiceImpl implements OrderService {
         paymentRequest.setPaymentMethod(request.getPaymentMethod());
         paymentRequest.setSimulateFailure(request.getSimulateFailure());
 
+        // Payment Service always returns 201 here — processing the request succeeded even if the
+        // outcome is a decline. The outcome lives in payment.getStatus(), not the HTTP status.
         PaymentResponseDTO payment;
         try {
             payment = restTemplate.postForObject(
                     PAYMENT_SERVICE_URL + "/payments", paymentRequest, PaymentResponseDTO.class);
-        } catch (HttpClientErrorException e) {
-            if (e.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
-                payment = parsePaymentResponse(e);
-            } else {
-                throw new ServiceException("Payment Service rejected the request: " + e.getMessage(),
-                        HttpStatus.BAD_REQUEST);
-            }
         } catch (RestClientException e) {
             throw new ServiceException("Payment Service unavailable", HttpStatus.SERVICE_UNAVAILABLE);
         }
@@ -166,14 +161,6 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return order;
-    }
-
-    private PaymentResponseDTO parsePaymentResponse(HttpClientErrorException e) {
-        try {
-            return e.getResponseBodyAs(PaymentResponseDTO.class);
-        } catch (Exception parseEx) {
-            return null;
-        }
     }
 
     @Override
