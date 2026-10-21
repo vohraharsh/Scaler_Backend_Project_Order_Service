@@ -8,6 +8,10 @@ import com.scaler.harsh.orderservice.model.DeliveryStatus;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.model.OrderItem;
 import com.scaler.harsh.orderservice.repository.OrderRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -31,11 +35,36 @@ public class OrderServiceImpl implements OrderService {
     private final RestTemplate restTemplate;
     private final OrderEventProducer orderEventProducer;
     private final OrderRepository orderRepository;
+    private final HttpServletRequest httpServletRequest;
 
-    public OrderServiceImpl(RestTemplate restTemplate, OrderEventProducer orderEventProducer, OrderRepository orderRepository) {
+    public OrderServiceImpl(RestTemplate restTemplate, OrderEventProducer orderEventProducer,
+                            OrderRepository orderRepository, HttpServletRequest httpServletRequest) {
         this.restTemplate = restTemplate;
         this.orderEventProducer = orderEventProducer;
         this.orderRepository = orderRepository;
+        this.httpServletRequest = httpServletRequest;
+    }
+
+    // User/Cart/Payment Service now each enforce their own JWT check (gap #3), so the incoming
+    // request's own Authorization header has to be forwarded on every internal call, or these
+    // calls start failing with 401 the moment those filters go live. Product Service stays
+    // public (matches kong.yml — no jwt plugin on its route), so forwarding there is harmless,
+    // not required; done anyway so every outgoing call follows one consistent helper.
+    private HttpEntity<Void> authEntity() {
+        return new HttpEntity<>(authHeaders());
+    }
+
+    private <T> HttpEntity<T> authEntity(T body) {
+        return new HttpEntity<>(body, authHeaders());
+    }
+
+    private HttpHeaders authHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        String token = httpServletRequest.getHeader("Authorization");
+        if (token != null) {
+            headers.set("Authorization", token);
+        }
+        return headers;
     }
 
     @Override
@@ -44,8 +73,9 @@ public class OrderServiceImpl implements OrderService {
 
         UserDTO user;
         try {
-            ResponseEntity<UserDTO> userResponse = restTemplate.getForEntity(
-                    USER_SERVICE_URL + "/users/" + request.getUserId(), UserDTO.class);
+            ResponseEntity<UserDTO> userResponse = restTemplate.exchange(
+                    USER_SERVICE_URL + "/users/" + request.getUserId(),
+                    HttpMethod.GET, authEntity(), UserDTO.class);
             user = userResponse.getBody();
         } catch (HttpClientErrorException.NotFound e) {
             throw new ServiceException("User not found: " + request.getUserId(), HttpStatus.NOT_FOUND);
@@ -59,8 +89,9 @@ public class OrderServiceImpl implements OrderService {
 
         CartDTO cart;
         try {
-            ResponseEntity<CartDTO> cartResponse = restTemplate.getForEntity(
-                    CART_SERVICE_URL + "/carts/active/" + request.getUserId(), CartDTO.class);
+            ResponseEntity<CartDTO> cartResponse = restTemplate.exchange(
+                    CART_SERVICE_URL + "/carts/active/" + request.getUserId(),
+                    HttpMethod.GET, authEntity(), CartDTO.class);
             cart = cartResponse.getBody();
         } catch (HttpClientErrorException.NotFound e) {
             throw new ServiceException("No active cart for user: " + request.getUserId(), HttpStatus.NOT_FOUND);
@@ -78,8 +109,9 @@ public class OrderServiceImpl implements OrderService {
         for (CartProductDTO cartProduct : cart.getProducts()) {
             ProductDTO product;
             try {
-                ResponseEntity<ProductDTO> productResponse = restTemplate.getForEntity(
-                        PRODUCT_SERVICE_URL + "/products/" + cartProduct.getProductId(), ProductDTO.class);
+                ResponseEntity<ProductDTO> productResponse = restTemplate.exchange(
+                        PRODUCT_SERVICE_URL + "/products/" + cartProduct.getProductId(),
+                        HttpMethod.GET, authEntity(), ProductDTO.class);
                 product = productResponse.getBody();
             } catch (HttpClientErrorException.NotFound e) {
                 throw new ServiceException("Product not found: " + cartProduct.getProductId(), HttpStatus.NOT_FOUND);
@@ -129,8 +161,10 @@ public class OrderServiceImpl implements OrderService {
         // outcome is a decline. The outcome lives in payment.getStatus(), not the HTTP status.
         PaymentResponseDTO payment;
         try {
-            payment = restTemplate.postForObject(
-                    PAYMENT_SERVICE_URL + "/payments", paymentRequest, PaymentResponseDTO.class);
+            ResponseEntity<PaymentResponseDTO> paymentResponse = restTemplate.exchange(
+                    PAYMENT_SERVICE_URL + "/payments",
+                    HttpMethod.POST, authEntity(paymentRequest), PaymentResponseDTO.class);
+            payment = paymentResponse.getBody();
         } catch (RestClientException e) {
             throw new ServiceException("Payment Service unavailable", HttpStatus.SERVICE_UNAVAILABLE);
         }
@@ -154,7 +188,9 @@ public class OrderServiceImpl implements OrderService {
         // Order is placed and paid — clear the cart so it can't be re-ordered or re-charged.
         // A failure here is a cleanup problem, not a reason to fail an already-completed order.
         try {
-            restTemplate.delete(CART_SERVICE_URL + "/carts/" + cart.getId());
+            restTemplate.exchange(
+                    CART_SERVICE_URL + "/carts/" + cart.getId(),
+                    HttpMethod.DELETE, authEntity(), Void.class);
         } catch (RestClientException e) {
             System.err.println("Failed to delete cart " + cart.getId()
                     + " after order " + order.getId() + ": " + e.getMessage());

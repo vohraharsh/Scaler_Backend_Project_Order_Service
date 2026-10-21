@@ -6,13 +6,16 @@ import com.scaler.harsh.orderservice.kafka.OrderEventProducer;
 import com.scaler.harsh.orderservice.model.DeliveryStatus;
 import com.scaler.harsh.orderservice.model.Order;
 import com.scaler.harsh.orderservice.repository.OrderRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
@@ -44,13 +47,16 @@ class OrderServiceImplTest {
     @Mock
     private OrderRepository orderRepository;
 
+    @Mock
+    private HttpServletRequest httpServletRequest;
+
     private OrderServiceImpl orderServiceImpl;
 
     private final AtomicInteger idGen = new AtomicInteger(100);
 
     @BeforeEach
     void setUp() {
-        orderServiceImpl = new OrderServiceImpl(restTemplate, orderEventProducer, orderRepository);
+        orderServiceImpl = new OrderServiceImpl(restTemplate, orderEventProducer, orderRepository, httpServletRequest);
         lenient().when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order order = inv.getArgument(0);
             if (order.getId() == null) {
@@ -58,6 +64,10 @@ class OrderServiceImplTest {
             }
             return order;
         });
+        // Every internal call now builds an HttpEntity carrying this header (gap #3 — forwarding
+        // the caller's own JWT downstream). Stubbed leniently since not every test's assertions
+        // care about it, but the code calls getHeader() on every placeOrder() path regardless.
+        lenient().when(httpServletRequest.getHeader("Authorization")).thenReturn("Bearer test-jwt-token");
     }
 
     // ---------- helpers ----------
@@ -114,10 +124,13 @@ class OrderServiceImplTest {
         return response;
     }
 
+    @SuppressWarnings("unchecked")
     private void stubHappyPathUserAndCart(Integer userId, UserDTO user, CartDTO cart) {
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/" + userId, UserDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/" + userId), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(UserDTO.class)))
                 .thenReturn(ResponseEntity.ok(user));
-        when(restTemplate.getForEntity(CART_SERVICE_URL + "/carts/active/" + userId, CartDTO.class))
+        when(restTemplate.exchange(eq(CART_SERVICE_URL + "/carts/active/" + userId), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(CartDTO.class)))
                 .thenReturn(ResponseEntity.ok(cart));
     }
 
@@ -125,7 +138,7 @@ class OrderServiceImplTest {
     @Test
     void placeOrder_userNotFound_throws404() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -136,7 +149,7 @@ class OrderServiceImplTest {
     @Test
     void placeOrder_userServiceUnavailable_throws503() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
                 .thenThrow(new ResourceAccessException("Connection refused"));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -146,7 +159,7 @@ class OrderServiceImplTest {
     @Test
     void placeOrder_userResponseBodyNull_throws404() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
                 .thenReturn(ResponseEntity.ok(null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -158,8 +171,9 @@ class OrderServiceImplTest {
     void placeOrder_noActiveCart_throws404() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
         UserDTO user = buildUser(5, "alice", "alice@example.com");
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class)).thenReturn(ResponseEntity.ok(user));
-        when(restTemplate.getForEntity(CART_SERVICE_URL + "/carts/active/5", CartDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
+                .thenReturn(ResponseEntity.ok(user));
+        when(restTemplate.exchange(eq(CART_SERVICE_URL + "/carts/active/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(CartDTO.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -171,8 +185,9 @@ class OrderServiceImplTest {
     void placeOrder_cartServiceUnavailable_throws503() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
         UserDTO user = buildUser(5, "alice", "alice@example.com");
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class)).thenReturn(ResponseEntity.ok(user));
-        when(restTemplate.getForEntity(CART_SERVICE_URL + "/carts/active/5", CartDTO.class))
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
+                .thenReturn(ResponseEntity.ok(user));
+        when(restTemplate.exchange(eq(CART_SERVICE_URL + "/carts/active/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(CartDTO.class)))
                 .thenThrow(new ResourceAccessException("Connection refused"));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -183,8 +198,10 @@ class OrderServiceImplTest {
     void placeOrder_cartResponseBodyNull_throws404() {
         CreateOrderRequestDTO request = buildRequest(5, "CARD", false);
         UserDTO user = buildUser(5, "alice", "alice@example.com");
-        when(restTemplate.getForEntity(USER_SERVICE_URL + "/users/5", UserDTO.class)).thenReturn(ResponseEntity.ok(user));
-        when(restTemplate.getForEntity(CART_SERVICE_URL + "/carts/active/5", CartDTO.class)).thenReturn(ResponseEntity.ok(null));
+        when(restTemplate.exchange(eq(USER_SERVICE_URL + "/users/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(UserDTO.class)))
+                .thenReturn(ResponseEntity.ok(user));
+        when(restTemplate.exchange(eq(CART_SERVICE_URL + "/carts/active/5"), eq(HttpMethod.GET), any(HttpEntity.class), eq(CartDTO.class)))
+                .thenReturn(ResponseEntity.ok(null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
@@ -197,7 +214,7 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 2)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -211,7 +228,7 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 2)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenThrow(new ResourceAccessException("Connection refused"));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -224,7 +241,8 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 2)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class)).thenReturn(ResponseEntity.ok(null));
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
+                .thenReturn(ResponseEntity.ok(null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
@@ -236,14 +254,15 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 2), buildCartProduct(11, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/11", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/11"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(11, "Case", 20.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
                 .thenAnswer(inv -> {
-                    PaymentRequestDTO req = inv.getArgument(1);
-                    return buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1");
+                    HttpEntity<PaymentRequestDTO> entity = inv.getArgument(2);
+                    PaymentRequestDTO req = entity.getBody();
+                    return ResponseEntity.ok(buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1"));
                 });
 
         Order result = orderServiceImpl.placeOrder(request);
@@ -262,9 +281,9 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
                 .thenThrow(new ResourceAccessException("Connection refused"));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -279,10 +298,10 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
-                .thenReturn(null);
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
+                .thenReturn(ResponseEntity.ok(null));
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
@@ -294,12 +313,13 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
                 .thenAnswer(inv -> {
-                    PaymentRequestDTO req = inv.getArgument(1);
-                    return buildPaymentResponse(req.getOrderId(), "FAILED", "TXN-9");
+                    HttpEntity<PaymentRequestDTO> entity = inv.getArgument(2);
+                    PaymentRequestDTO req = entity.getBody();
+                    return ResponseEntity.ok(buildPaymentResponse(req.getOrderId(), "FAILED", "TXN-9"));
                 });
 
         ServiceException ex = assertThrows(ServiceException.class, () -> orderServiceImpl.placeOrder(request));
@@ -307,7 +327,7 @@ class OrderServiceImplTest {
 
         verify(orderRepository, times(2)).save(any(Order.class));
         verifyNoInteractions(orderEventProducer);
-        verify(restTemplate, never()).delete(anyString());
+        verify(restTemplate, never()).exchange(eq(CART_SERVICE_URL + "/carts/22"), eq(HttpMethod.DELETE), any(HttpEntity.class), eq(Void.class));
     }
 
     @Test
@@ -316,12 +336,13 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
                 .thenAnswer(inv -> {
-                    PaymentRequestDTO req = inv.getArgument(1);
-                    return buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1");
+                    HttpEntity<PaymentRequestDTO> entity = inv.getArgument(2);
+                    PaymentRequestDTO req = entity.getBody();
+                    return ResponseEntity.ok(buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1"));
                 });
 
         Order result = orderServiceImpl.placeOrder(request);
@@ -333,7 +354,7 @@ class OrderServiceImplTest {
         verify(orderEventProducer).publishOrderPlaced(orderIdCaptor.capture(), eq(5), eq("alice@example.com"), eq(100.0));
         assertEquals(result.getId(), orderIdCaptor.getValue());
 
-        verify(restTemplate).delete(CART_SERVICE_URL + "/carts/22");
+        verify(restTemplate).exchange(eq(CART_SERVICE_URL + "/carts/22"), eq(HttpMethod.DELETE), any(HttpEntity.class), eq(Void.class));
     }
 
     @Test
@@ -342,14 +363,16 @@ class OrderServiceImplTest {
         UserDTO user = buildUser(5, "alice", "alice@example.com");
         CartDTO cart = buildCart(22, 5, List.of(buildCartProduct(10, 1)));
         stubHappyPathUserAndCart(5, user, cart);
-        when(restTemplate.getForEntity(PRODUCT_SERVICE_URL + "/products/10", ProductDTO.class))
+        when(restTemplate.exchange(eq(PRODUCT_SERVICE_URL + "/products/10"), eq(HttpMethod.GET), any(HttpEntity.class), eq(ProductDTO.class)))
                 .thenReturn(ResponseEntity.ok(buildProduct(10, "Phone", 100.0)));
-        when(restTemplate.postForObject(eq(PAYMENT_SERVICE_URL + "/payments"), any(PaymentRequestDTO.class), eq(PaymentResponseDTO.class)))
+        when(restTemplate.exchange(eq(PAYMENT_SERVICE_URL + "/payments"), eq(HttpMethod.POST), any(HttpEntity.class), eq(PaymentResponseDTO.class)))
                 .thenAnswer(inv -> {
-                    PaymentRequestDTO req = inv.getArgument(1);
-                    return buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1");
+                    HttpEntity<PaymentRequestDTO> entity = inv.getArgument(2);
+                    PaymentRequestDTO req = entity.getBody();
+                    return ResponseEntity.ok(buildPaymentResponse(req.getOrderId(), "SUCCESS", "TXN-1"));
                 });
-        doThrow(new ResourceAccessException("Cart Service unreachable")).when(restTemplate).delete(anyString());
+        when(restTemplate.exchange(eq(CART_SERVICE_URL + "/carts/22"), eq(HttpMethod.DELETE), any(HttpEntity.class), eq(Void.class)))
+                .thenThrow(new ResourceAccessException("Cart Service unreachable"));
 
         Order result = assertDoesNotThrow(() -> orderServiceImpl.placeOrder(request));
         assertEquals("SUCCESS", result.getPaymentStatus());
